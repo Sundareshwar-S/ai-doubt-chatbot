@@ -50,36 +50,36 @@ riskiest work is front-loaded. Check items off as you go; stop and review at eac
 
 ## Phase 1 — Document ingestion & extraction (PDF + image, OCR)
 
-- [ ] **T1.1 — Sample fixtures.** Add a **born-digital PDF**, a **scanned/image-only PDF**, and a
+- [x] **T1.1 — Sample fixtures.** Add a **born-digital PDF**, a **scanned/image-only PDF**, and a
   standalone **image** (PNG/JPG), each with known text you can assert on.
   *Files:* `tests/fixtures/*`.
   *Verify:* files exist; expected text noted in the test.
 
-- [ ] **T1.2 — Born-digital PDF text.** In `extract.py`, use PyMuPDF (`import fitz`) to open a PDF,
+- [x] **T1.2 — Born-digital PDF text.** In `extract.py`, use PyMuPDF (`import fitz`) to open a PDF,
   iterate pages, `page.get_text("text")`, return `[{page, text}]`.
   *Files:* `app/ingest/extract.py`.
   *Verify:* on the born-digital fixture, returns non-empty text with correct page numbers, **no OCR**.
 
-- [ ] **T1.3 — OCR wrapper.** In `ocr.py`, `from rapidocr import RapidOCR`; wrap `engine(image)` to
+- [x] **T1.3 — OCR wrapper.** In `ocr.py`, `from rapidocr import RapidOCR`; wrap `engine(image)` to
   return concatenated text (handle empty result).
   *Files:* `app/ingest/ocr.py`.
   *Verify:* on the standalone image fixture, returns the known text.
 
-- [ ] **T1.4 — Scanned-page routing.** In `extract.py`, when a page's extracted text is empty/below a
+- [x] **T1.4 — Scanned-page routing.** In `extract.py`, when a page's extracted text is empty/below a
   threshold, render it with `page.get_pixmap(dpi=200)` → image → `ocr.py`.
   *Files:* `app/ingest/extract.py` (uses `ocr.py`).
   *Verify:* on the scanned PDF fixture, returns OCR'd text with page numbers.
 
-- [ ] **T1.5 — Image-file path.** For an uploaded PNG/JPG, OCR directly and return a single "page".
+- [x] **T1.5 — Image-file path.** For an uploaded PNG/JPG, OCR directly and return a single "page".
   *Files:* `app/ingest/extract.py`.
   *Verify:* returns text for the image fixture.
 
-- [ ] **T1.6 — Error handling (A5).** Corrupt/empty/unsupported file → raise a clear custom error, no
+- [x] **T1.6 — Error handling (A5).** Corrupt/empty/unsupported file → raise a clear custom error, no
   crash.
   *Files:* `app/ingest/extract.py`, `tests/test_extract.py`.
   *Verify:* a truncated/garbage file test asserts a clean error; `pytest tests/test_extract.py` passes.
 
-- [ ] **T1.7 — Normalize to Documents.** Convert extracted pages into LlamaIndex `Document`s with
+- [x] **T1.7 — Normalize to Documents.** Convert extracted pages into LlamaIndex `Document`s with
   `metadata={"source": filename, "page": n}`.
   *Files:* `app/ingest/extract.py`.
   *Verify:* returns `list[Document]`; test asserts metadata present.
