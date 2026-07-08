@@ -13,7 +13,7 @@ riskiest work is front-loaded. Check items off as you go; stop and review at eac
 
 ## Phase 0 — Environment & feasibility spike  *(de-risk the biggest unknown first)*
 
-- [ ] **T0.1 — Project skeleton.** Create the directory tree from `plan.md`; write `requirements.txt`
+- [x] **T0.1 — Project skeleton.** Create the directory tree from `plan.md`; write `requirements.txt`
   (`llama-index-core`, `llama-index-llms-ollama`, `llama-index-embeddings-ollama`,
   `llama-index-vector-stores-chroma`, `chromadb`, `pymupdf`, **`rapidocr`**, **`onnxruntime`**,
   `pillow`, `numpy`, `streamlit`, `pytest`); add a `README.md` stub and `.gitignore` (ignore `data/`,
@@ -21,22 +21,22 @@ riskiest work is front-loaded. Check items off as you go; stop and review at eac
   *Files:* `requirements.txt`, `README.md`, `.gitignore`, package dirs.
   *Verify:* tree matches the map; `python -m venv .venv` + `pip install -r requirements.txt` succeeds.
 
-- [ ] **T0.2 — Install Ollama & pull models.** Install Ollama; pull `llama3.2:3b`, `qwen2.5:7b`, and
+- [x] **T0.2 — Install Ollama & pull models.** Install Ollama; pull `llama3.2:3b`, `qwen2.5:7b`, and
   `nomic-embed-text` (confirm the exact tags exist while pulling).
   *Files:* `README.md` (record the commands).
   *Verify:* `ollama list` shows all three; `ollama run llama3.2:3b "hi"` responds.
 
-- [ ] **T0.3 — Benchmark script.** `scripts/benchmark.py`: for each candidate LLM run a fixed prompt,
+- [x] **T0.3 — Benchmark script.** `scripts/benchmark.py`: for each candidate LLM run a fixed prompt,
   measure **tokens/sec** + **peak RAM**; embed ~50 sample chunks with `nomic-embed-text` and time it.
   *Files:* `scripts/benchmark.py`.
   *Verify:* running it prints a results table without error.
 
-- [ ] **T0.4 — Run benchmark & choose the default model.** Record numbers in `docs/benchmarks.md`;
+- [x] **T0.4 — Run benchmark & choose the default model.** Record numbers in `docs/benchmarks.md`;
   pick the default that fits ~9 GB and meets the latency target (sets **E4**); write it into `config.py`.
   *Files:* `docs/benchmarks.md`, `config.py`.
   *Verify:* doc has real numbers; `config.py` names the chosen default model.
 
-- [ ] **T0.5 — LlamaIndex ↔ Ollama smoke test (offline).** `scripts/smoke.py`: set
+- [x] **T0.5 — LlamaIndex ↔ Ollama smoke test (offline).** `scripts/smoke.py`: set
   `Settings.llm = Ollama(model=<chosen>, request_timeout=360.0, context_window=8192)` and
   `Settings.embed_model = OllamaEmbedding(model_name="nomic-embed-text")`; index a one-paragraph
   string; query it; print the answer.

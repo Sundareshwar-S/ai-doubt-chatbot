@@ -1,0 +1,13 @@
+# Runtime data: vector DB, manifest, uploaded files (created at runtime)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Editor / OS
+.DS_Store

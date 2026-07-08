@@ -1,0 +1,18 @@
+# AI Doubt Solver — Python deps (installed on CPython 3.12 via uv)
+# LlamaIndex core + Ollama LLM/embeddings + Chroma vector store
+llama-index-core
+llama-index-llms-ollama
+llama-index-embeddings-ollama
+llama-index-vector-stores-chroma
+chromadb
+
+# Document ingestion / OCR (exercised from Phase 1 onward)
+pymupdf
+rapidocr            # NOTE: use `rapidocr`, not the deprecated `rapidocr-onnxruntime`
+onnxruntime
+pillow
+numpy
+
+# Web UI + tests
+streamlit
+pytest
