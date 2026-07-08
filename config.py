@@ -25,3 +25,12 @@ REQUEST_TIMEOUT = 360.0  # seconds; CPU generation can be slow
 # Explicit context window so Ollama doesn't silently truncate retrieved chunks + history
 # (its default num_ctx is often only 2048-4096). Sized to fit top_k chunks + prompt.
 CONTEXT_WINDOW = 8192
+
+# --- Indexing / retrieval (Phase 2) ---
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 64
+TOP_K = 4
+SIMILARITY_CUTOFF = 0.2
+PERSIST_DIR = DATA_DIR / "chroma"
+COLLECTION_NAME = "documents"
+MANIFEST_PATH = DATA_DIR / "manifest.json"

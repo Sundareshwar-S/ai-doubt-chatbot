@@ -91,39 +91,39 @@ riskiest work is front-loaded. Check items off as you go; stop and review at eac
 
 ## Phase 2 — Indexing, retrieval & persistence
 
-- [ ] **T2.1 — Index settings.** Add to `config.py`: `chunk_size=512`, `chunk_overlap=64`, `top_k`,
+- [x] **T2.1 — Index settings.** Add to `config.py`: `chunk_size=512`, `chunk_overlap=64`, `top_k`,
   `similarity_cutoff`, `persist_dir`, `collection_name`, `context_window`.
   *Files:* `config.py`.
   *Verify:* constants import cleanly.
 
-- [ ] **T2.2 — Chroma store.** In `store.py`, build `chromadb.PersistentClient(path=persist_dir)` →
+- [x] **T2.2 — Chroma store.** In `store.py`, build `chromadb.PersistentClient(path=persist_dir)` →
   `get_or_create_collection(collection_name)` → `ChromaVectorStore` → `StorageContext.from_defaults`.
   *Files:* `app/index/store.py`.
   *Verify:* calling it creates `data/chroma/`; returns store + storage_context.
 
-- [ ] **T2.3 — Build/insert pipeline.** In `pipeline.py`, chunk Documents with
+- [x] **T2.3 — Build/insert pipeline.** In `pipeline.py`, chunk Documents with
   `SentenceSplitter(chunk_size, chunk_overlap)`, embed with `OllamaEmbedding`, build
   `VectorStoreIndex(nodes, storage_context=…, embed_model=…)`; `add_documents(docs)` inserts via
   `index.insert_nodes(...)` for later additions.
   *Files:* `app/index/pipeline.py`.
   *Verify:* ingest a fixture → `chroma_collection.count() > 0`.
 
-- [ ] **T2.4 — Reload across restart (B5).** Load an existing collection with
+- [x] **T2.4 — Reload across restart (B5).** Load an existing collection with
   `VectorStoreIndex.from_vector_store(vector_store, storage_context=…, embed_model=…)`.
   *Files:* `app/index/pipeline.py`, `app/index/store.py`.
   *Verify:* process A ingests; a **fresh process** B queries and gets a relevant chunk.
 
-- [ ] **T2.5 — Library manifest.** Write/read `data/manifest.json` (filename, sha256, pages, added_at);
+- [x] **T2.5 — Library manifest.** Write/read `data/manifest.json` (filename, sha256, pages, added_at);
   ingest updates it and **skips re-ingest if the hash already exists**.
   *Files:* `app/index/pipeline.py`.
   *Verify:* ingest the same file twice → one manifest entry, no duplicate vectors.
 
-- [ ] **T2.6 — List / remove.** `list_documents()` reads the manifest; `remove_document(source)` deletes
+- [x] **T2.6 — List / remove.** `list_documents()` reads the manifest; `remove_document(source)` deletes
   the manifest entry **and** the doc's vectors via Chroma metadata filter on `source`.
   *Files:* `app/index/pipeline.py`.
   *Verify:* add two docs → list shows two; remove one → list shows one and its vectors are gone.
 
-- [ ] **T2.7 — Retrieval test.** Retriever returns `top_k` nodes carrying `{source, page}` metadata.
+- [x] **T2.7 — Retrieval test.** Retriever returns `top_k` nodes carrying `{source, page}` metadata.
   *Files:* `tests/test_index.py`.
   *Verify:* `pytest tests/test_index.py` passes; nodes carry metadata.
 
