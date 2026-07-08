@@ -60,21 +60,34 @@ Most tests are marked `@pytest.mark.integration` and require a **real local Olla
 │  │  ├─ store.py           # Chroma PersistentClient + ChromaVectorStore + StorageContext
 │  │  ├─ pipeline.py        # chunk -> embed -> VectorStoreIndex; ingest/add/list/remove
 │  │  └─ manifest.py        # data/manifest.json read/write (library list, dedup by sha256)
-│  └─ qa/
-│     ├─ prompts.py         # grounding QA prompt template + REFUSAL_MESSAGE + chat context prompt
-│     ├─ engine.py          # query engine, citations, grounded-refusal short-circuit
-│     └─ chat.py            # multi-turn condense_plus_context chat engine + token-capped memory
-│  # api/ (Phase 5, FastAPI backend) not yet built
+│  ├─ qa/
+│  │  ├─ prompts.py         # grounding QA prompt template + REFUSAL_MESSAGE + chat context prompt
+│  │  ├─ engine.py          # query engine, citations, grounded-refusal short-circuit
+│  │  └─ chat.py            # multi-turn condense_plus_context chat engine + token-capped memory
+│  └─ api/                  # FastAPI backend (Phase 5)
+│     ├─ main.py            # create_app(); lifespan builds AppState once; CORS; static mount
+│     ├─ state.py           # AppState: handle, embed_model, index, chat_engine, chat_lock, library_lock
+│     ├─ dependencies.py    # Depends() getters reading from request.app.state (pure reads, no fallback)
+│     ├─ exceptions.py      # domain errors -> {error:{code,message}} JSON envelope
+│     ├─ schemas/           # documents.py, chat.py, health.py, errors.py (Pydantic models)
+│     ├─ routers/           # documents.py, chat.py, health.py
+│     └─ services/          # ingestion_service.py, qa_service.py, ollama_health.py
 ├─ scripts/
 │  ├─ benchmark.py          # Phase 0: tok/s + peak RAM per candidate model
 │  └─ smoke.py              # Phase 0: offline LlamaIndex<->Ollama smoke test
 ├─ docs/
 │  └─ benchmarks.md         # Phase 0 results + chosen default model
 ├─ tests/
-│  ├─ conftest.py           # `require_ollama` fixture (skips integration tests if unreachable)
+│  ├─ conftest.py           # `require_ollama` fixture + app_state/api_app/client fixtures (Phase 5)
 │  ├─ fixtures/             # sample born-digital PDF, scanned PDF, image
-│  ├─ test_extract.py, test_ocr.py, test_index.py, test_qa.py, test_chat.py
-│  # frontend/ (Phase 5, React + Vite) not yet built
+│  ├─ test_extract.py, test_ocr.py, test_index.py, test_qa.py, test_chat.py, test_api.py
+├─ frontend/                # React + Vite + TypeScript UI (Phase 5)
+│  ├─ vite.config.ts        # dev proxy: /api, /health -> http://localhost:8000
+│  └─ src/
+│     ├─ App.tsx, main.tsx
+│     ├─ api/               # client.ts (fetch wrapper + ApiError), types.ts (mirrors Pydantic schemas)
+│     ├─ hooks/             # useDocuments.ts, useChat.ts, useHealth.ts
+│     └─ components/        # StatusBanner, UploadPanel, LibraryList, ChatWindow, ChatMessage
 └─ data/                    # (gitignored) chroma/ vector DB, manifest.json, uploaded files
 ```
 
@@ -126,8 +139,24 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   the query engine:** the chat engine always writes to memory, so on empty retrieval LlamaIndex
   stores the literal "Empty Response" — `ask()` both returns `REFUSAL_MESSAGE` *and* repairs that
   poisoned assistant message in memory so it can't corrupt the next turn's condense input. The engine
-  is stateful (one instance per conversation); Phase 5 must scope memory per session, not share one
-  buffer across concurrent requests.
+  is stateful (one instance per conversation).
+- **`app/api/`** — FastAPI backend wrapping the pipeline above. `main.py`'s `lifespan` builds a single
+  `AppState` (handle, embed_model, index, chat_engine) exactly once at startup — the FastAPI
+  equivalent of `@st.cache_resource` — and mounts `frontend/dist` at `/` when it exists (after all
+  routers, so it never shadows an API route). **`chat_engine` is one shared conversation, not one per
+  session/tab** — a deliberate simplification for this single-user, no-auth tool; `AppState.chat_lock`
+  serializes access to its mutable `ChatMemoryBuffer` so concurrent requests can't interleave writes,
+  and `AppState.library_lock` does the same for the manifest+Chroma-collection mutations that upload/
+  remove share. `dependencies.py`'s `get_state` is a pure read off `request.app.state` (no
+  build-a-default fallback, unlike `app/index`/`app/qa`'s DI pattern) so "built once at startup" is
+  structurally guaranteed. Blocking calls (PyMuPDF/OCR/embedding, `chat_engine.chat()`, file I/O) are
+  always wrapped in `starlette.concurrency.run_in_threadpool` inside routers/services, never called
+  directly from an `async def` route. Domain exceptions (`app/api/exceptions.py`) render as
+  `{"error": {"code", "message"}}` via `register_exception_handlers`; a refusal is a normal 200
+  `AnswerResult`, not routed through that machinery. `frontend/` (React + Vite + TS) talks to `/api/*`
+  and `/health` via a shared `apiFetch()` client that throws a typed `ApiError` from that same
+  envelope — except `useHealth.ts`, which does a raw `fetch('/health')` since that endpoint's body is
+  meaningful data on both 200 and 503, not an error to throw.
 
 **Config is centralized and flat** — `config.py` is the single source for model names, Ollama
 connection settings, chunk/retrieval tuning, and paths. Don't hardcode any of these in `app/`;
@@ -143,8 +172,9 @@ touching `data/`.
 
 **Phased build order** (see `plan.md`/`tasks.md` for full detail): Phase 0 (env/model choice) →
 Phase 1 (ingestion/OCR) → Phase 2 (indexing/persistence) → Phase 3 (QA + citations + refusal) →
-Phase 4 (multi-turn chat memory, `app/qa/chat.py`) are implemented and tested. Phase 5 (FastAPI
-backend in `app/api/` + React/Vite frontend in `frontend/`) is not yet built.
+Phase 4 (multi-turn chat memory, `app/qa/chat.py`) → Phase 5 (FastAPI backend in `app/api/` +
+React/Vite frontend in `frontend/`) → Phase 6 (hardening: input validation, health-check UX, README,
+offline verification) are all implemented and tested.
 
 ## Git workflow
 

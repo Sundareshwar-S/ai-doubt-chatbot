@@ -1,0 +1,130 @@
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  background: #442222;
+  color: #ffdddd;
+}
+
+.status-banner button {
+  flex-shrink: 0;
+}
+
+.upload-panel,
+.library-list,
+.chat-window {
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #333;
+}
+
+.library-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.library-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.status-text {
+  color: #aaa;
+  font-size: 0.9rem;
+}
+
+.error-text {
+  color: #ff8080;
+  font-weight: 600;
+}
+
+.chat-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0.75rem 0;
+}
+
+.chat-message {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.chat-message--user {
+  background: #223344;
+  align-self: flex-end;
+}
+
+.chat-message--assistant {
+  background: #2a2a2a;
+  align-self: flex-start;
+}
+
+.citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.citation-chip {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #3a3a3a;
+  color: #ccc;
+}
+
+.chat-window form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-window input[type='text'] {
+  flex: 1;
+}

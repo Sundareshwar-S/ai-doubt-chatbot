@@ -19,3 +19,4 @@ uvicorn[standard]
 python-multipart      # required by FastAPI/Starlette to parse multipart/form-data (file uploads)
 httpx                 # Ollama health-check client + async test client
 pytest
+pytest-asyncio        # required for httpx.ASGITransport-based async API tests

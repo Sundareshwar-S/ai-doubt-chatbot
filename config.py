@@ -45,3 +45,12 @@ MANIFEST_PATH = DATA_DIR / "manifest.json"
 # cl100k encoding, not llama3.2's tokenizer, so this is an approximate budget with
 # deliberate head-room; re-verify empirically if CHUNK_SIZE/TOP_K/this value grow.
 CHAT_MEMORY_TOKEN_LIMIT = 1536
+
+# --- API (Phase 5) ---
+CORS_ORIGINS = ["http://localhost:5173"]  # Vite dev server origin only
+API_HOST = "127.0.0.1"  # localhost-only; no auth, so never bind 0.0.0.0
+API_PORT = 8000
+MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB; generous for scanned/image-heavy PDFs
+UPLOADS_DIR = DATA_DIR / "uploads"
+FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+HEALTH_CHECK_TIMEOUT_SECONDS = 5.0  # GET /health's ping to Ollama's /api/tags
