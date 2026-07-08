@@ -2,10 +2,15 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
+import { TypingIndicator } from './TypingIndicator';
 
 export function ChatWindow() {
   const { messages, isAsking, error, askQuestion, resetChat } = useChat();
   const [question, setQuestion] = useState('');
+
+  const lastMessage = messages[messages.length - 1];
+  const showTyping = isAsking && lastMessage?.role === 'assistant' && lastMessage.content === '';
+  const visibleMessages = showTyping ? messages.slice(0, -1) : messages;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -26,9 +31,10 @@ export function ChatWindow() {
         </button>
       </div>
       <div className="chat-transcript" aria-live="polite" aria-relevant="additions">
-        {messages.map((message, index) => (
+        {visibleMessages.map((message, index) => (
           <ChatMessage key={index} message={message} />
         ))}
+        {showTyping && <TypingIndicator />}
       </div>
       {error && (
         <p className="error-text" role="alert">

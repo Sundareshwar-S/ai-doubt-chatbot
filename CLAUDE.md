@@ -90,7 +90,8 @@ Most tests are marked `@pytest.mark.integration` and require a **real local Olla
 │     ├─ App.tsx, main.tsx
 │     ├─ api/               # client.ts (fetch wrapper + ApiError), types.ts (mirrors Pydantic schemas)
 │     ├─ hooks/             # useDocuments.ts, useChat.ts, useHealth.ts
-│     └─ components/        # StatusBanner, UploadPanel, LibraryList, ChatWindow, ChatMessage
+│     └─ components/        # StatusBanner, UploadPanel, LibraryList, ChatWindow, ChatMessage,
+│                            # TypingIndicator, icons.tsx (inline SVG icon set)
 └─ data/                    # (gitignored) chroma/ vector DB, manifest.json, uploaded files
 ```
 
@@ -182,7 +183,15 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   and `/health` via a shared `apiFetch()` client that throws a typed `ApiError` from that same
   envelope — except `useChat.ts` (raw `fetch` reading the NDJSON stream body for progressive rendering)
   and `useHealth.ts` (raw `fetch('/health')` since that endpoint's body is meaningful data on both 200
-  and 503, not an error to throw).
+  and 503, not an error to throw). Styling is plain CSS (`index.css` for palette/theme CSS variables +
+  the shared `spin` keyframe, `App.css` for component styling) with no CSS framework or icon library —
+  icons are hand-rolled inline SVG components in `components/icons.tsx` to keep the frontend
+  zero-extra-deps. `useChat.ts`'s `isAsking` flag covers the whole request lifecycle (submit through
+  stream-drain) and there's no separate "waiting for first token" flag, but none is needed: the empty
+  assistant placeholder message pushed at the start of `askQuestion` is exactly that signal — `ChatWindow`
+  derives `showTyping = isAsking && lastMessage.role === 'assistant' && lastMessage.content === ''` and
+  swaps in `TypingIndicator` (bot avatar + a CSS spinner) for that placeholder until the first token
+  arrives and overwrites it.
 
 **Config is centralized and flat** — `config.py` is the single source for model names, Ollama
 connection settings, LLM call tuning (`LLM_TEMPERATURE`, `LLM_KEEP_ALIVE`, `CONTEXT_WINDOW`,
