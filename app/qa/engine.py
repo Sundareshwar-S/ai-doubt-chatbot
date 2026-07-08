@@ -53,7 +53,7 @@ def build_query_engine(index: VectorStoreIndex, llm: Ollama | None = None) -> Ba
     )
 
 
-def _dedup_citations(source_nodes: list[NodeWithScore]) -> list[Citation]:
+def dedup_citations(source_nodes: list[NodeWithScore]) -> list[Citation]:
     """Dedup by (source, page): the same page can surface via >1 retrieved chunk
     (e.g. a long page split across multiple nodes); keep the highest score seen
     for that page, ordered best-evidence-first.
@@ -84,5 +84,5 @@ def answer_question(
 
     return AnswerResult(
         answer=str(response),
-        citations=_dedup_citations(response.source_nodes),
+        citations=dedup_citations(response.source_nodes),
     )

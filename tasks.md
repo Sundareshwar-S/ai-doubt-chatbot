@@ -172,23 +172,34 @@ list/remove works; `test_index.py` passes.
 
 ## Phase 4 — Multi-turn chat memory
 
-- [ ] **T4.1 — Chat engine.** In `chat.py`, `index.as_chat_engine(chat_mode="condense_plus_context",
+- [x] **T4.1 — Chat engine.** In `chat.py`, `index.as_chat_engine(chat_mode="condense_plus_context",
   memory=ChatMemoryBuffer.from_defaults(token_limit=…), node_postprocessors=[SimilarityPostprocessor(
   similarity_cutoff=…)], llm=…)`.
   *Files:* `app/qa/chat.py`.
   *Verify:* `chat_engine.chat("…")` returns a response exposing `source_nodes`.
 
-- [ ] **T4.2 — Follow-up resolution (C5).** Ask a question, then a pronoun follow-up ("explain that
+- [x] **T4.2 — Follow-up resolution (C5).** Ask a question, then a pronoun follow-up ("explain that
   more simply"); confirm it uses the prior turn (condense step rewrites it to a standalone query).
   *Files:* `tests/test_chat.py`.
   *Verify:* follow-up answer stays on-topic; `pytest tests/test_chat.py` passes.
+  *(Assert on **retrieval**, not the 3B model's answer wording: in a multi-topic corpus the*
+  *topic-neutral follow-up "Explain that more simply." only ranks the bio doc top because condense*
+  *pulled "mitochondria" from history. The condensed query was observed as "What is a simple*
+  *explanation for what mitochondria do in cells?". Also verified the chat refusal path: on an*
+  *out-of-doc turn `ask()` returns REFUSAL_MESSAGE **and repairs** the "Empty Response" that the*
+  *chat engine writes to memory — unlike the stateless query engine — so it can't poison the next*
+  *turn's condense input.)*
 
-- [ ] **T4.3 — Memory cap + reset.** `token_limit` bounds history; `chat_engine.reset()` clears it.
+- [x] **T4.3 — Memory cap + reset.** `token_limit` bounds history; `chat_engine.reset()` clears it.
   *Files:* `app/qa/chat.py`, `tests/test_chat.py`.
   *Verify:* after `reset()`, a follow-up no longer resolves against the prior turn.
+  *(Tested deterministically: hold the `ChatMemoryBuffer`, assert `len(memory.get()) > 0` after a*
+  *turn and `memory.get() == []` after `reset()`; assert `default_memory().token_limit ==*
+  *`config.CHAT_MEMORY_TOKEN_LIMIT`. The buffer's token count uses tiktoken cl100k, not llama3.2's*
+  *tokenizer — an approximate budget with head-room; see the note in `config.py`.)*
 
 **Phase 4 DoD:** follow-ups resolve via condensed history; memory is token-capped; reset works;
-`test_chat.py` passes.
+`test_chat.py` passes. ✅ Met — `pytest tests/` passes 29/29 (24 prior + 5 new).
 
 ---
 

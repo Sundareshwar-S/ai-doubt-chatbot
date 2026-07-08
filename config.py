@@ -37,3 +37,11 @@ SIMILARITY_CUTOFF = 0.35
 PERSIST_DIR = DATA_DIR / "chroma"
 COLLECTION_NAME = "documents"
 MANIFEST_PATH = DATA_DIR / "manifest.json"
+
+# --- Chat memory (Phase 4) ---
+# Caps retained multi-turn history so history + TOP_K retrieved chunks (~4*512 =
+# 2k tokens) + prompt stay within CONTEXT_WINDOW (8192), keeping RAM/context
+# bounded on CPU inference. NOTE: ChatMemoryBuffer counts tokens with tiktoken's
+# cl100k encoding, not llama3.2's tokenizer, so this is an approximate budget with
+# deliberate head-room; re-verify empirically if CHUNK_SIZE/TOP_K/this value grow.
+CHAT_MEMORY_TOKEN_LIMIT = 1536
