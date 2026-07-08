@@ -80,17 +80,24 @@ GPU/ROCm · guaranteed handwriting/complex-math OCR (best-effort only) · docume
 | PDF text | **PyMuPDF** | Fast, accurate born-digital text + page boundaries for citations | pdfplumber; Docling (better tables/layout, heavier) |
 | OCR (images / scans) | **RapidOCR** | Best CPU speed/accuracy offline; pip-only, **no Tesseract binary** (PaddleOCR on ONNX Runtime) | pytesseract (needs system Tesseract); EasyOCR (heavier) |
 | Chat memory | **LlamaIndex chat engine** (`condense_plus_context`) + `ChatMemoryBuffer` | Documented pattern for grounded multi-turn follow-ups, token-capped | Manual history stuffing (more code, easy to overflow context) |
-| Web UI | **Streamlit** | Native `st.file_uploader`, `st.chat_message`, `st.chat_input`, `st.status` | Gradio; FastAPI + custom frontend |
+| Backend API | **FastAPI** | `create_app()` factory; lifespan builds the index/chat-engine singleton once (replaces `st.cache_resource`); `Depends()`-based DI; thin routers over `app/index`/`app/qa` | Flask (no async, no Pydantic validation, no OpenAPI docs) |
+| Frontend | **React + Vite** (TypeScript) | Fast dev server, HMR, minimal build config; plain hooks + `fetch` are enough state for this app's scope | Streamlit (no longer used — traded native widgets for a real API + custom UI); Gradio |
 | Reranking | **Deferred** (optional later) | `SentenceTransformerRerank` improves retrieval but adds CPU latency | Enable later if retrieval quality needs it |
 
 ### System flow
 
 ```
-                 ┌──────────────── Streamlit UI (localhost) ────────────────┐
-                 │  upload PDF/image · library view · chat · citations       │
-                 └───────────┬───────────────────────────────┬──────────────┘
-        INGEST PATH          │                               │       QUERY PATH
-                             ▼                               ▼
+       ┌────── React + Vite UI (localhost:5173 dev / same-origin prod) ───────┐
+       │  upload PDF/image · library view · chat · citations · status banner  │
+       └───────────┬────────────────────────────────────┬─────────────────────┘
+                    │ fetch (Vite dev proxy, or same-origin prod build)
+                    ▼
+       ┌─────────────────────── FastAPI app (app/api/, :8000) ────────────────┐
+       │  routers/documents.py         routers/chat.py       routers/health.py │
+       │  POST/GET/DELETE /api/documents   POST /api/chat/ask, /reset  /health │
+       └───────────┬───────────────────────────────┬───────────────────────────┘
+       INGEST PATH │                                │       QUERY PATH
+                    ▼                                ▼
      ┌───────────────────────────────┐          ┌──────────────────────────────┐
      │ ingest/extract.py             │          │ qa/chat.py  (multi-turn)      │
      │  PyMuPDF: born-digital text   │          │   ChatMemoryBuffer (capped)   │
@@ -114,16 +121,21 @@ GPU/ROCm · guaranteed handwriting/complex-math OCR (best-effort only) · docume
                     └──────────────────────────────┘   └─────────────────────────┘
 
    All LLM + embedding calls go to a local Ollama server (http://localhost:11434). No internet.
+   app/api/main.py's lifespan builds the index + chat engine once at startup (the FastAPI
+   equivalent of Streamlit's @st.cache_resource); ingestion writes straight into the same
+   persisted Chroma collection the retriever queries, so no rebuild step is needed after uploads.
 ```
 
 ### File / module map (one responsibility per file)
 
 ```
 ai-doubt-solver/
-├─ README.md                 # setup (Ollama + venv) and run instructions, troubleshooting
+├─ README.md                 # setup (Ollama + venv + Node) and run instructions, troubleshooting
 ├─ requirements.txt          # pinned Python deps
-├─ .gitignore                # ignore ./data, venv, caches
-├─ config.py                 # single source of settings: model names, paths, chunk size, top_k
+├─ .gitignore                # ignore ./data, venv, caches, frontend/node_modules, frontend/dist
+├─ config.py                 # single source of settings: model names, paths, chunk size, top_k,
+│                             # CORS_ORIGINS, API_HOST/PORT, MAX_UPLOAD_SIZE_BYTES, UPLOADS_DIR,
+│                             # FRONTEND_DIST_DIR
 ├─ scripts/
 │  └─ benchmark.py           # Phase 0: measure tokens/sec + RAM per model; embed timing
 ├─ app/
@@ -138,15 +150,32 @@ ai-doubt-solver/
 │  │  ├─ engine.py           # retrieval + query engine; returns answer + source nodes (citations)
 │  │  ├─ prompts.py          # grounding/system prompt templates ("answer only from context…")
 │  │  └─ chat.py             # as_chat_engine(condense_plus_context) + ChatMemoryBuffer
-│  └─ ui/
-│     └─ streamlit_app.py    # browser app wiring ingest + index + chat; status, errors, citations
+│  └─ api/                   # FastAPI backend (replaces the old Streamlit UI)
+│     ├─ main.py             # create_app(): lifespan builds index/chat-engine singleton once,
+│     │                      # CORS, router registration, mounts frontend/dist as static (prod)
+│     ├─ state.py            # AppState dataclass: handle, embed_model, index, chat_engine
+│     ├─ dependencies.py     # Depends() getters reading from request.app.state
+│     ├─ exceptions.py       # domain errors -> structured {error:{code,message}} JSON
+│     ├─ schemas/            # documents.py, chat.py, health.py, errors.py (Pydantic models)
+│     ├─ routers/            # documents.py, chat.py, health.py
+│     └─ services/           # ingestion_service.py, qa_service.py, ollama_health.py
+├─ frontend/                 # React + Vite (TypeScript) UI
+│  ├─ package.json           # react, react-dom + vite, @vitejs/plugin-react, typescript
+│  ├─ vite.config.ts         # dev proxy: /api, /health -> http://localhost:8000
+│  └─ src/
+│     ├─ App.tsx, main.tsx
+│     ├─ api/                # client.ts (fetch wrapper), types.ts (mirrors Pydantic schemas)
+│     ├─ hooks/               # useDocuments.ts, useChat.ts, useHealth.ts
+│     └─ components/          # StatusBanner, UploadPanel, LibraryList, ChatWindow, ChatMessage
 ├─ data/                     # (gitignored) chroma/ vector DB · manifest.json · uploaded files
 ├─ tests/
 │  ├─ fixtures/              # sample born-digital PDF, scanned PDF, and an image
 │  ├─ test_extract.py
 │  ├─ test_index.py
 │  ├─ test_qa.py
-│  └─ test_chat.py
+│  ├─ test_chat.py
+│  └─ test_api.py            # httpx.AsyncClient(ASGITransport) against create_app(),
+│                             # dependency_overrides pointing at a tmp_path Chroma collection
 └─ docs/
    └─ benchmarks.md          # Phase 0 results + chosen default model
 ```
@@ -264,19 +293,28 @@ now accounts for (so implementation doesn't hit them as bugs):
 - **DoD:** a follow-up like "explain that more simply" resolves using the previous turn; the memory
   buffer is token-capped so RAM stays bounded.
 
-### Phase 5 — Streamlit web UI
-- **Goal:** Browser app: upload, library view, chat with citations, live status, readable errors.
+### Phase 5 — FastAPI backend + React/Vite frontend
+- **Goal:** Browser app talking to a FastAPI API: upload, library view, chat with citations, live
+  status, readable errors.
 - **Depends on:** Phases 1–4.
-- **Files:** `app/ui/streamlit_app.py`.
-- **DoD:** from the browser only: upload → ask → cited answer → follow-up; ingest/answer show progress
-  (D3); a bad file and a stopped-Ollama both surface a clear message (D4).
+- **Files:** `app/api/{main,state,dependencies,exceptions}.py`, `app/api/schemas/*`,
+  `app/api/routers/*`, `app/api/services/*`, `frontend/*` (React + Vite).
+- **DoD:** from the browser only, against the running FastAPI backend: upload → ask → cited answer →
+  follow-up → "Clear chat" resets the conversation; ingest/answer show progress (D3, client-side
+  spinners since responses are plain blocking JSON, no SSE); a bad file and a stopped-Ollama both
+  surface a clear message via the `/health` banner and per-request error envelopes (D4). Works both
+  in the two-process dev workflow (`uvicorn --reload` + `vite`) and the single-command prod mode
+  (`uvicorn` alone serving the built `frontend/dist`).
 
 ### Phase 6 — Hardening & docs (solid personal tool)
 - **Goal:** Make it reliable enough for daily personal use.
 - **Depends on:** Phase 5.
-- **Files:** `config.py`, `README.md`, small polish across modules.
-- **DoD:** a fresh setup works by following the README; a file-size guard and input validation exist;
-  Ollama-not-running and unparseable-file cases are handled gracefully; settings live in `config.py`.
+- **Files:** `config.py`, `README.md`, `app/api/services/ingestion_service.py`,
+  `app/api/services/ollama_health.py`, `frontend/src/components/StatusBanner.tsx`.
+- **DoD:** a fresh setup works by following the README in **both** the dev (two-process) and
+  single-command prod mode; a file-size guard and input validation live in the FastAPI upload
+  endpoint; Ollama-not-running vs. model-missing are distinguished and recoverable without a
+  restart (a "Recheck" action); settings live in `config.py`.
 
 ---
 
@@ -285,6 +323,10 @@ now accounts for (so implementation doesn't hit them as bugs):
 - **Per phase:** each phase's DoD is the acceptance test; unit tests (`tests/`) accompany Phases 1–4
   using the sample fixtures.
 - **Offline proof:** disable networking and confirm ingest + Q&A still work (Ollama is local).
-- **End-to-end:** `streamlit run app/ui/streamlit_app.py`, upload a sample PDF and an image, ask an
-  in-doc question (expect a cited answer), ask an out-of-doc question (expect a refusal), ask a
-  follow-up (expect it to use prior context).
+- **End-to-end (dev):** `uvicorn app.api.main:app --reload --port 8000` in one terminal, `npm run dev`
+  (Vite, port 5173) in another; upload a sample PDF and an image, ask an in-doc question (expect a
+  cited answer), ask an out-of-doc question (expect a refusal), ask a follow-up (expect it to use
+  prior context), then "Clear chat".
+- **End-to-end (prod/daily-use):** `npm run build` in `frontend/`, then
+  `uvicorn app.api.main:app --port 8000` alone serves both the API and the built UI at
+  `http://localhost:8000` — repeat the same upload/ask/follow-up/clear walkthrough.

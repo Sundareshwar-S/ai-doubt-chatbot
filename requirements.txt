@@ -13,6 +13,9 @@ onnxruntime
 pillow
 numpy
 
-# Web UI + tests
-streamlit
+# Web API + tests
+fastapi
+uvicorn[standard]
+python-multipart      # required by FastAPI/Starlette to parse multipart/form-data (file uploads)
+httpx                 # Ollama health-check client + async test client
 pytest

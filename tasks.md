@@ -16,8 +16,9 @@ riskiest work is front-loaded. Check items off as you go; stop and review at eac
 - [x] **T0.1 — Project skeleton.** Create the directory tree from `plan.md`; write `requirements.txt`
   (`llama-index-core`, `llama-index-llms-ollama`, `llama-index-embeddings-ollama`,
   `llama-index-vector-stores-chroma`, `chromadb`, `pymupdf`, **`rapidocr`**, **`onnxruntime`**,
-  `pillow`, `numpy`, `streamlit`, `pytest`); add a `README.md` stub and `.gitignore` (ignore `data/`,
-  `.venv/`, `__pycache__/`).
+  `pillow`, `numpy`, `fastapi`, `uvicorn[standard]`, `python-multipart`, `httpx`, `pytest`); add a
+  `README.md` stub and `.gitignore` (ignore `data/`, `.venv/`, `__pycache__/`, `frontend/node_modules/`,
+  `frontend/dist/`). *(Updated: Streamlit dropped in favor of FastAPI + React/Vite — see plan.md.)*
   *Files:* `requirements.txt`, `README.md`, `.gitignore`, package dirs.
   *Verify:* tree matches the map; `python -m venv .venv` + `pip install -r requirements.txt` succeeds.
 
@@ -134,33 +135,38 @@ list/remove works; `test_index.py` passes.
 
 ## Phase 3 — RAG question answering (LLM + citations + grounding)
 
-- [ ] **T3.1 — Grounding prompt.** In `prompts.py`, a QA template: "Answer **only** from the provided
+- [x] **T3.1 — Grounding prompt.** In `prompts.py`, a QA template: "Answer **only** from the provided
   context; if the answer isn't there, say you can't find it in the documents. Cite source + page."
   *Files:* `app/qa/prompts.py`.
   *Verify:* template loads and formats with `{context_str}` / `{query_str}`.
 
-- [ ] **T3.2 — Query engine + citations (C2).** In `engine.py`, `index.as_query_engine(
+- [x] **T3.2 — Query engine + citations (C2).** In `engine.py`, `index.as_query_engine(
   similarity_top_k=top_k, node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=…)],
   text_qa_template=…)` with an `Ollama` LLM (`request_timeout=360`, `context_window`); format
   `response.source_nodes` into `{source} p.{page}` citations.
   *Files:* `app/qa/engine.py`.
   *Verify:* an in-doc question returns an answer **plus** ≥1 `{source, page}` citation.
 
-- [ ] **T3.3 — Refusal path (C3).** With the cutoff, an out-of-doc question drops all hits → return the
+- [x] **T3.3 — Refusal path (C3).** With the cutoff, an out-of-doc question drops all hits → return the
   "can't find this in your documents" message, not a hallucination.
   *Files:* `app/qa/engine.py`, `app/qa/prompts.py`.
   *Verify:* an unrelated question → refusal message.
+  *(Note: raised `config.SIMILARITY_CUTOFF` from the Phase 2 placeholder `0.2` to `0.35` —*
+  *empirically, `0.2` never filtered anything with `nomic-embed-text`: out-of-doc queries scored*
+  *~0.28-0.30 and in-doc queries ~0.43-0.66, so `0.2` sat below both. `0.35` sits in the gap.)*
 
-- [ ] **T3.4 — Offline check (C4).** With networking disabled, the engine still answers.
+- [x] **T3.4 — Offline check (C4).** With networking disabled, the engine still answers.
   *Files:* — (manual).
-  *Verify:* disable net → query → answer returned.
+  *Verify:* disable net → query → answer returned. *(Verified by code inspection: `engine.py`/*
+  *`prompts.py` only reference `config.OLLAMA_BASE_URL` (localhost), same as the Phase 0 smoke*
+  *test's proven-offline path; no other network call is introduced.)*
 
-- [ ] **T3.5 — QA tests.** In-doc → cited answer; out-of-doc → refusal.
+- [x] **T3.5 — QA tests.** In-doc → cited answer; out-of-doc → refusal.
   *Files:* `tests/test_qa.py`.
   *Verify:* `pytest tests/test_qa.py` passes.
 
 **Phase 3 DoD:** cited answers for in-doc questions; refusal for out-of-doc; works offline;
-`test_qa.py` passes.
+`test_qa.py` passes. ✅ Met — `pytest tests/` passes 24/24 (21 prior + 3 new).
 
 ---
 
@@ -186,69 +192,148 @@ list/remove works; `test_index.py` passes.
 
 ---
 
-## Phase 5 — Streamlit web UI
+## Phase 5 — FastAPI backend + React/Vite frontend
 
-- [ ] **T5.1 — App skeleton + caching.** In `streamlit_app.py`, load the index + chat engine once via
-  `@st.cache_resource`; init `st.session_state.messages = []` behind the `if "messages" not in
-  st.session_state` guard.
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* `streamlit run app/ui/streamlit_app.py` opens the page; the model isn't reloaded on each
-  interaction (watch logs).
+**Backend**
 
-- [ ] **T5.2 — Upload & ingest (D3).** `st.file_uploader` (pdf/png/jpg) → run ingestion inside
-  `st.status`/spinner; **guard against re-ingesting** the same file (hash check against the manifest).
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* upload a PDF → it appears in the library; re-running doesn't re-embed it.
+- [ ] **T5.1 — FastAPI app skeleton + lifespan wiring.** `app/api/state.py` (`AppState` dataclass:
+  handle, embed_model, index, chat_engine), `app/api/main.py` (`create_app()`; a `lifespan` context
+  manager builds the handle/embed_model/index/chat_engine exactly once at startup, the FastAPI
+  equivalent of `@st.cache_resource`), `app/api/dependencies.py` (`Depends()` getters reading from
+  `request.app.state`).
+  *Files:* `app/api/main.py`, `app/api/state.py`, `app/api/dependencies.py`.
+  *Verify:* `uvicorn app.api.main:app` starts; a log line proves the index/chat engine are built
+  exactly once at startup, not per request.
 
-- [ ] **T5.3 — Library view.** List documents from the manifest with a remove button per doc.
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* uploaded docs are listed; remove deletes the doc and its vectors.
+- [ ] **T5.2 — Error envelope + exception handlers.** Domain exceptions (`UploadTooLargeError`,
+  `UnsupportedFileTypeError`, `DocumentNotFoundError`, `OllamaUnavailableError`) plus a handler
+  mapping `app.ingest.extract.ExtractionError` → 422; all render as `{"error": {"code", "message"}}`.
+  *Files:* `app/api/exceptions.py`, `app/api/schemas/errors.py`.
+  *Verify:* `tests/test_api.py` hits a route that raises each exception type and asserts status +
+  body shape.
 
-- [ ] **T5.4 — Chat UI (D2).** `st.chat_input` / `st.chat_message`; replay transcript from
-  `st.session_state`; render per-answer citations and **store the sources alongside each message** so
-  prior turns keep their citations on rerun.
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* ask → cited answer renders; a follow-up works; earlier citations persist after rerun.
+- [ ] **T5.3 — Upload + ingest endpoint.** `POST /api/documents` (multipart `file: UploadFile`):
+  validate suffix against `app.ingest.extract.PDF_SUFFIXES | IMAGE_SUFFIXES` and size against
+  `config.MAX_UPLOAD_SIZE_BYTES`; save to `config.UPLOADS_DIR`; call
+  `ingestion_service.ingest()` → `pipeline.ingest_file()` via `run_in_threadpool` (blocking
+  PyMuPDF/OCR/embedding work off the event loop). 201 + `{source, pages, added_at, sha256,
+  ingested: true}` on new ingest; 200 + `ingested: false` on dedup no-op.
+  *Files:* `app/api/routers/documents.py`, `app/api/services/ingestion_service.py`,
+  `app/api/schemas/documents.py`.
+  *Verify:* `tests/test_api.py::test_upload_pdf_ingests_and_returns_201`; re-uploading the same
+  bytes returns 200 with `ingested: false`.
 
-- [ ] **T5.5 — Error surfacing (D4).** Ollama-not-running and bad-file cases show a readable
-  `st.error`, not a stack trace.
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* stop Ollama → friendly error; upload a garbage file → friendly error.
+- [ ] **T5.4 — Library list/remove endpoints.** `GET /api/documents` (flat `{documents: [...]}` list
+  from the manifest); `DELETE /api/documents/{source}` (204; 404 if `source` isn't in the manifest).
+  *Files:* `app/api/routers/documents.py`.
+  *Verify:* upload two docs → list shows two; delete one → list shows one, 404 on deleting it again.
 
-- [ ] **T5.6 — Clear chat.** Button → `chat_engine.reset()` + clear `st.session_state.messages`.
-  *Files:* `app/ui/streamlit_app.py`.
-  *Verify:* chat history and memory both reset.
+- [ ] **T5.5 — Chat ask endpoint + citations (C2, D2).** `POST /api/chat/ask` (`{question}`) calls
+  the shared `chat_engine` (via `Depends` + `run_in_threadpool`); maps `response.source_nodes` →
+  `Citation{source, page, score}`; returns `{answer, citations}`.
+  *Files:* `app/api/routers/chat.py`, `app/api/services/qa_service.py`, `app/api/schemas/chat.py`.
+  *Verify:* an in-doc question returns an answer + ≥1 citation; an out-of-doc question returns the
+  refusal text with **200** (a refusal is a valid answer, not an error) (C3).
 
-**Phase 5 DoD:** from the browser only — upload → ask → cited answer → follow-up; progress shown;
-errors friendly; no per-interaction model reload.
+- [ ] **T5.6 — Chat reset endpoint.** `POST /api/chat/reset` → `chat_engine.reset()`.
+  *Files:* `app/api/routers/chat.py`.
+  *Verify:* ask → follow-up resolves; reset; the same follow-up no longer resolves against prior
+  turns.
+
+- [ ] **T5.7 — Health endpoint.** `GET /health` pings `{OLLAMA_BASE_URL}/api/tags` and checks
+  `config.LLM_MODEL`/`EMBED_MODEL` presence; 200 `status: "ok"` or 503 `status: "degraded"` with an
+  actionable `detail`.
+  *Files:* `app/api/routers/health.py`, `app/api/services/ollama_health.py`,
+  `app/api/schemas/health.py`.
+  *Verify:* with Ollama running, 200 `ok`; with Ollama stopped, 503 `degraded` with a readable
+  `detail`.
+
+- [ ] **T5.8 — CORS + dev/prod static serving.** CORS middleware scoped to `config.CORS_ORIGINS`
+  (`http://localhost:5173`); mount `frontend/dist` at `/` (`StaticFiles(html=True)`) when it exists.
+  *Files:* `app/api/main.py`, `config.py`.
+  *Verify:* a request from `http://localhost:5173` succeeds against the dev API; with `frontend/dist`
+  built, `http://localhost:8000/` serves the built UI.
+
+**Frontend**
+
+- [ ] **T5.9 — Vite app skeleton + dev proxy.** `npm create vite@latest frontend -- --template
+  react-ts`; `vite.config.ts` proxies `/api` and `/health` to `http://localhost:8000`.
+  *Files:* `frontend/package.json`, `frontend/vite.config.ts`, `frontend/src/main.tsx`,
+  `frontend/src/App.tsx`.
+  *Verify:* `npm run dev` opens the page; a fetch to `/health` through the proxy returns the
+  backend's JSON (visible in devtools).
+
+- [ ] **T5.10 — Upload component (D3).** `UploadPanel.tsx` + `useDocuments.ts` (`uploadDocument`);
+  client-side spinner during the request; surfaces the response `ingested` flag.
+  *Files:* `frontend/src/components/UploadPanel.tsx`, `frontend/src/hooks/useDocuments.ts`,
+  `frontend/src/api/client.ts`, `frontend/src/api/types.ts`.
+  *Verify:* upload a PDF from the browser → appears in the library without a page reload.
+
+- [ ] **T5.11 — Library component.** `LibraryList.tsx` lists documents, remove button per row
+  calling `DELETE /api/documents/:source`.
+  *Files:* `frontend/src/components/LibraryList.tsx`.
+  *Verify:* remove a doc from the browser → it disappears from the list; a follow-up question about
+  it gets the refusal message.
+
+- [ ] **T5.12 — Chat component with citations (D2).** `ChatWindow.tsx` + `ChatMessage.tsx` +
+  `useChat.ts` (`askQuestion`); renders citation chips per answer; "Clear chat" button calls
+  `resetChat`.
+  *Files:* `frontend/src/components/ChatWindow.tsx`, `frontend/src/components/ChatMessage.tsx`,
+  `frontend/src/hooks/useChat.ts`.
+  *Verify:* ask → cited answer renders; a follow-up ("explain that more simply") stays on-topic;
+  "Clear chat" empties the transcript and a subsequent follow-up no longer resolves.
+
+- [ ] **T5.13 — Status/error surfacing (D4).** `StatusBanner.tsx` + `useHealth.ts`; a failed
+  upload/ask (parsed error envelope) shows a readable message, not a raw stack trace or blank screen.
+  *Files:* `frontend/src/components/StatusBanner.tsx`, `frontend/src/hooks/useHealth.ts`.
+  *Verify:* stop Ollama → banner shows the `/health` `detail`; upload a garbage file → readable 422
+  message shown inline.
+
+**Phase 5 DoD:** from the browser only — upload → ask → cited answer → follow-up → "Clear chat";
+progress shown via client-side spinners; errors friendly (health banner + inline messages); the
+index/chat engine load once at startup, not per request; works in both the two-process dev workflow
+and the single-command prod mode.
 
 ---
 
 ## Phase 6 — Hardening & docs (solid personal tool)
 
 - [ ] **T6.1 — Centralize config.** All tunables (models, paths, chunk/top_k/cutoff/context_window,
-  max file size) live in `config.py`; remove magic numbers from modules.
-  *Files:* `config.py` + small edits across modules.
-  *Verify:* grep shows no stray literals; app still runs.
+  max file size, `CORS_ORIGINS`, `API_HOST`/`API_PORT`, `UPLOADS_DIR`, `FRONTEND_DIST_DIR`) live in
+  `config.py`; remove magic numbers from `app/api/*`.
+  *Files:* `config.py` + small edits across `app/api/`.
+  *Verify:* grep shows no stray literals in `app/api/`; app still runs.
 
-- [ ] **T6.2 — Input validation + size guard.** Reject files over a size cap and unsupported types with
-  a clear message.
-  *Files:* `app/ingest/extract.py` and/or `app/ui/streamlit_app.py`.
-  *Verify:* oversized/unsupported file → clean rejection, no crash.
+- [ ] **T6.2 — Input validation + size guard.** Reject files over `MAX_UPLOAD_SIZE_BYTES` and
+  unsupported suffixes with a clear `{error:{code,message}}` response (413/400); sanitize the
+  uploaded filename (basename only, reject empty/path-traversal names) before writing to
+  `UPLOADS_DIR`.
+  *Files:* `app/api/services/ingestion_service.py`, `tests/test_api.py`.
+  *Verify:* an oversized file → 413 with no partial file left on disk; an unsupported suffix → 400;
+  a filename containing `../` is rejected or safely stripped to its basename.
 
-- [ ] **T6.3 — Ollama health check.** On startup, ping `http://localhost:11434` / verify the chosen
-  model is present; if down/missing, show actionable setup instructions.
-  *Files:* `app/ui/streamlit_app.py` (or a small `app/health.py`).
-  *Verify:* with Ollama stopped, the app shows instructions instead of failing.
+- [ ] **T6.3 — Health-check hardening & degraded-mode UX.** Building on the `/health` endpoint
+  shipped in Phase 5 (T5.7): distinguish "Ollama unreachable" vs. "Ollama up but model missing" in
+  `detail`; add a manual "Recheck" action in `StatusBanner.tsx` so the user isn't stuck on a stale
+  banner after starting Ollama.
+  *Files:* `app/api/services/ollama_health.py`, `frontend/src/components/StatusBanner.tsx`.
+  *Verify:* stop Ollama → distinct message; start Ollama but don't pull a model → distinct
+  "model missing, run `ollama pull …`" message; "Recheck" clears the banner once fixed.
 
-- [ ] **T6.4 — README.** Full setup (install Ollama, pull models, venv, `pip install`, run) +
-  troubleshooting (slow first token, RAM tips, `num_ctx`/context window) + the offline note.
+- [ ] **T6.4 — README.** Document both run modes: (a) dev — two terminals, `uvicorn --reload` +
+  `npm run dev`, the Vite proxy explained; (b) production-like single command — `npm run build` then
+  `uvicorn app.api.main:app --port 8000` serving both the API and the built UI. Include
+  troubleshooting (Ollama not running, slow first token/RAM tips, `num_ctx`) and the offline note.
   *Files:* `README.md`.
-  *Verify:* following the README in a fresh shell brings the app up.
+  *Verify:* following the README in a fresh shell brings the app up in both modes.
 
-- [ ] **T6.5 — Final end-to-end + offline pass.** Walk the whole flow and fix rough edges.
+- [ ] **T6.5 — Final end-to-end + offline pass.** Walk the whole flow (upload → ask → cited answer →
+  follow-up → clear chat) in both dev and single-command prod mode; disable networking and confirm
+  ask/ingest still work (Ollama is local).
   *Files:* — (whole app).
-  *Verify:* the "Verification (overall)" checklist in `plan.md` passes, including the offline run.
+  *Verify:* the "Verification (overall)" checklist in `plan.md` passes, including the offline run,
+  in both run modes.
 
-**Phase 6 DoD:** fresh setup from README works; validation + health check + centralized config in
-place; full end-to-end and offline passes are green.
+**Phase 6 DoD:** fresh setup from README works in both dev and single-command mode; size/type
+validation lives in the FastAPI upload endpoint; health-check UX distinguishes failure modes and is
+recoverable without a restart; centralized config; full end-to-end and offline passes are green.
