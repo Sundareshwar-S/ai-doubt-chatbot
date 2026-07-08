@@ -26,6 +26,12 @@ export interface ChatAskResponse {
   citations: ChatCitation[];
 }
 
+// Newline-delimited JSON events from POST /api/chat/stream (app/api/routers/chat.py).
+export type ChatStreamEvent =
+  | { type: 'token'; text: string }
+  | { type: 'done'; citations: ChatCitation[] }
+  | { type: 'error'; message: string };
+
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   detail: string | null;

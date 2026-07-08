@@ -6,8 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Local, fully offline RAG "chat with your PDFs/images" tool (AI Doubt Solver). Everything — LLM,
 embeddings, vector store — runs on-machine via Ollama; no data or requests leave the host. The
-project is CPU-inference only (target machine has no ROCm-capable GPU), which drives model choice
-(`llama3.2:3b`, quantized) and context-window/chunk-size tuning throughout.
+project targets CPU inference, which drives model choice (`qwen2.5:3b`, quantized — chosen over
+`llama3.2:3b` for tighter instruction-following/summarization at ~the same speed/RAM) and
+context-window/chunk-size tuning throughout. Optional AMD iGPU offload (Vulkan/ROCm) is documented in
+`README.md` but is a runtime/env setting only — no app code depends on it.
 
 `plan.md` is the authoritative architecture/phased-plan doc; `tasks.md` is the current task
 checklist. Read both before starting work on any phase — they contain grounded, verified API facts
@@ -24,9 +26,10 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
 # Ollama models (must be installed & running; default model set in config.py)
-ollama pull llama3.2:3b
-ollama pull qwen2.5:7b        # quality fallback, ~2x slower/RAM — see docs/benchmarks.md
+ollama pull qwen2.5:3b        # default chat model (config.LLM_MODEL)
 ollama pull nomic-embed-text
+ollama pull llama3.2:3b       # faster fallback, looser instruction-following
+ollama pull qwen2.5:7b        # quality fallback, ~2x slower/RAM — see docs/benchmarks.md
 
 # Tests
 .venv/bin/python -m pytest tests/                     # full suite
@@ -80,7 +83,7 @@ Most tests are marked `@pytest.mark.integration` and require a **real local Olla
 ├─ tests/
 │  ├─ conftest.py           # `require_ollama` fixture + app_state/api_app/client fixtures (Phase 5)
 │  ├─ fixtures/             # sample born-digital PDF, scanned PDF, image
-│  ├─ test_extract.py, test_ocr.py, test_index.py, test_qa.py, test_chat.py, test_api.py
+│  ├─ test_extract.py, test_ocr.py, test_index.py, test_qa.py, test_chat.py, test_api.py, test_prompts.py
 ├─ frontend/                # React + Vite + TypeScript UI (Phase 5)
 │  ├─ vite.config.ts        # dev proxy: /api, /health -> http://localhost:8000
 │  └─ src/
@@ -127,9 +130,21 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   fixed `REFUSAL_MESSAGE` for LlamaIndex's generic "Empty Response". This makes refusal both free
   (no wasted CPU generation) and deterministic to test (exact string match, not fuzzy LLM output).
   Citations are deduped by `(source, page)` keeping the max score, since one page can split into
-  multiple retrieved chunks. `config.SIMILARITY_CUTOFF` was empirically tuned (0.35, not the Phase 2
-  placeholder 0.2 — that never filtered anything with `nomic-embed-text`: out-of-doc queries scored
-  ~0.28-0.30, in-doc ~0.43-0.66) — re-verify empirically if the embedding model ever changes.
+  multiple retrieved chunks. `config.SIMILARITY_CUTOFF` was empirically tuned to **0.30**
+  (with `nomic-embed-text`: genuinely out-of-doc queries score ~0.25-0.30, *broad "what is this
+  about"/summary* questions ~0.35-0.37, focused in-doc ~0.43-0.66). It was 0.35, which dropped summary
+  questions like "what is this pdf about" (0.348) *before the LLM ran* — a separate failure mode from
+  the LLM over-refusing on retrieved context. 0.30 sits in the gap so meta questions retrieve (the
+  prompt then summarizes) while unrelated ones still get the free deterministic refusal — re-verify
+  empirically if the embedding model ever changes.
+  `default_llm()` is the single place the `Ollama` client is built (both engine and chat import it);
+  it sets `temperature=0` (`config.LLM_TEMPERATURE`) for deterministic grounded answers/reproducible
+  refusals and `keep_alive` (`config.LLM_KEEP_ALIVE`) to keep the model warm in RAM between requests.
+  **The grounding prompts (`app/qa/prompts.py`) deliberately permit summarizing/synthesizing across
+  chunks and only refuse when the context is *unrelated* to the question** — an earlier "answer only if
+  literally contained" wording made the small 3B model over-refuse broad "what is this about" questions;
+  `tests/test_prompts.py` locks in that the `{context_str}`/`{query_str}` placeholders + `REFUSAL_MESSAGE`
+  survive future edits.
 - **`app/qa/chat.py`** — multi-turn chat via LlamaIndex `condense_plus_context`: each turn condenses
   the follow-up + prior history into a standalone retrieval query *before* retrieval, so pronoun
   follow-ups ("explain that more simply") resolve against earlier turns. Reuses `engine.py`'s
@@ -139,7 +154,11 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   the query engine:** the chat engine always writes to memory, so on empty retrieval LlamaIndex
   stores the literal "Empty Response" — `ask()` both returns `REFUSAL_MESSAGE` *and* repairs that
   poisoned assistant message in memory so it can't corrupt the next turn's condense input. The engine
-  is stateful (one instance per conversation).
+  is stateful (one instance per conversation). `start_stream()` is the streaming counterpart: it calls
+  `chat_engine.stream_chat()` (which sets `source_nodes` synchronously from retrieval and spawns a
+  background history-writer thread), and returns a `StreamHandle` — either `refused=True` (empty
+  retrieval: it drains the stream, repairs memory, and the caller emits `REFUSAL_MESSAGE`) or the live
+  token generator + up-front deduped citations. Same refusal contract as `ask()`, just streamed.
 - **`app/api/`** — FastAPI backend wrapping the pipeline above. `main.py`'s `lifespan` builds a single
   `AppState` (handle, embed_model, index, chat_engine) exactly once at startup — the FastAPI
   equivalent of `@st.cache_resource` — and mounts `frontend/dist` at `/` when it exists (after all
@@ -153,13 +172,21 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   always wrapped in `starlette.concurrency.run_in_threadpool` inside routers/services, never called
   directly from an `async def` route. Domain exceptions (`app/api/exceptions.py`) render as
   `{"error": {"code", "message"}}` via `register_exception_handlers`; a refusal is a normal 200
-  `AnswerResult`, not routed through that machinery. `frontend/` (React + Vite + TS) talks to `/api/*`
+  `AnswerResult`, not routed through that machinery. **Chat has two endpoints:** `POST /api/chat/ask`
+  returns the whole `AnswerResult` in one shot (`qa_service.ask_question`), while `POST /api/chat/stream`
+  streams the same turn as newline-delimited JSON — `{"type":"token",…}` deltas then a terminal
+  `{"type":"done","citations":[…]}` — via `qa_service.ask_question_stream`, an async generator that
+  holds `chat_lock` for the whole stream and pulls the sync token generator through
+  `run_in_threadpool(next, …)`. A mid-stream failure can't use the error envelope (200 already sent), so
+  it surfaces as a terminal `{"type":"error",…}` event. `frontend/` (React + Vite + TS) talks to `/api/*`
   and `/health` via a shared `apiFetch()` client that throws a typed `ApiError` from that same
-  envelope — except `useHealth.ts`, which does a raw `fetch('/health')` since that endpoint's body is
-  meaningful data on both 200 and 503, not an error to throw.
+  envelope — except `useChat.ts` (raw `fetch` reading the NDJSON stream body for progressive rendering)
+  and `useHealth.ts` (raw `fetch('/health')` since that endpoint's body is meaningful data on both 200
+  and 503, not an error to throw).
 
 **Config is centralized and flat** — `config.py` is the single source for model names, Ollama
-connection settings, chunk/retrieval tuning, and paths. Don't hardcode any of these in `app/`;
+connection settings, LLM call tuning (`LLM_TEMPERATURE`, `LLM_KEEP_ALIVE`, `CONTEXT_WINDOW`,
+`REQUEST_TIMEOUT`), chunk/retrieval tuning, and paths. Don't hardcode any of these in `app/`;
 extend `config.py` instead. Note the explicit `CONTEXT_WINDOW` on the `Ollama` LLM: Ollama's default
 `num_ctx` is often smaller than the model's advertised max and will silently truncate retrieved
 context otherwise.

@@ -108,6 +108,52 @@ def test_out_of_doc_question_refuses_without_poisoning_memory(tmp_path, require_
 
 
 @pytest.mark.integration
+def test_start_stream_yields_tokens_and_citations(tmp_path, require_ollama):
+    """Streaming path: an in-doc question streams a non-empty answer and exposes
+    deduped citations up front (mirrors chat.ask's non-refusal contract).
+    """
+    # Arrange
+    index = _index_with(_BIO_DOCS, tmp_path)
+    chat_engine = chat.build_chat_engine(index=index)
+
+    # Act
+    handle = chat.start_stream(chat_engine, "What is the powerhouse of the cell?")
+    streamed = "".join(handle.tokens)  # drain -> joins the history-writer thread
+
+    # Assert
+    assert handle.refused is False
+    assert len(streamed) > 0
+    assert streamed != REFUSAL_MESSAGE
+    assert len(handle.citations) >= 1
+    assert all(c.source == "bio.pdf" for c in handle.citations)
+
+
+@pytest.mark.integration
+def test_start_stream_refuses_without_poisoning_memory(tmp_path, require_ollama):
+    """Streaming refusal: out-of-doc question yields refused=True with no tokens and
+    no citations, and the engine's memory is repaired to REFUSAL_MESSAGE (not the raw
+    "Empty Response") so the next turn's condense step isn't poisoned.
+    """
+    # Arrange
+    index = _index_with(_BIO_DOCS, tmp_path)
+    memory = default_memory()
+    chat_engine = chat.build_chat_engine(index=index, memory=memory)
+
+    # Act (same reliably out-of-doc question as the non-streaming refusal test, so it
+    # stays comfortably below SIMILARITY_CUTOFF against the bio corpus)
+    handle = chat.start_stream(chat_engine, "What was the exchange rate of the Ottoman lira in 1875?")
+
+    # Assert: streaming refusal contract holds...
+    assert handle.refused is True
+    assert list(handle.tokens) == []
+    assert handle.citations == []
+    # ...and memory was repaired (deterministic), same as the non-streaming path.
+    last = memory.get_all()[-1]
+    assert last.role == MessageRole.ASSISTANT
+    assert last.content == REFUSAL_MESSAGE
+
+
+@pytest.mark.integration
 def test_reset_clears_memory(tmp_path, require_ollama):
     """T4.3 -- reset() empties the memory buffer (deterministic, no LLM fuzziness)."""
     # Arrange: hold our own memory buffer so we assert on it directly.

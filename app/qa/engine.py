@@ -40,6 +40,8 @@ def default_llm() -> Ollama:
         base_url=config.OLLAMA_BASE_URL,
         request_timeout=config.REQUEST_TIMEOUT,
         context_window=config.CONTEXT_WINDOW,
+        temperature=config.LLM_TEMPERATURE,
+        keep_alive=config.LLM_KEEP_ALIVE,
     )
 
 

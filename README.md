@@ -27,9 +27,11 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
 # 3. Pull the local models (Ollama must be installed & running)
-ollama pull llama3.2:3b
-ollama pull qwen2.5:7b
-ollama pull nomic-embed-text
+ollama pull qwen2.5:3b       # default chat model (config.LLM_MODEL)
+ollama pull nomic-embed-text # embeddings (config.EMBED_MODEL)
+# Optional drop-in fallbacks (swap config.LLM_MODEL to use one):
+ollama pull llama3.2:3b      # faster, looser instruction-following
+ollama pull qwen2.5:7b       # higher quality, ~2x slower / more RAM
 
 # 4. Install frontend dependencies
 cd frontend && npm install && cd ..
@@ -74,6 +76,14 @@ one per browser tab or session — this is a personal, single-user tool, so that
 that fits. If you have two tabs open, they share one conversation; use **Clear chat** to start a fresh
 topic rather than opening a second tab expecting a second conversation.
 
+### Answers stream token-by-token
+
+The UI posts to `POST /api/chat/stream`, which returns newline-delimited JSON (`{"type":"token",…}`
+deltas then a final `{"type":"done","citations":[…]}`), so the answer renders as it's generated
+instead of after the whole (CPU-bound) generation finishes. The non-streaming `POST /api/chat/ask`
+still exists and returns the same answer in one shot. Refusals stream too: an out-of-document question
+streams exactly `"I can't find this in your documents."` with no citations.
+
 ## Tests
 
 ```bash
@@ -89,9 +99,12 @@ cd frontend && npx tsc --noEmit                          # frontend type-check
 - **"Model(s) not pulled" banner** — Ollama is running but a model in `config.py`
   (`LLM_MODEL`/`EMBED_MODEL`) hasn't been pulled yet. Run the `ollama pull <model>` command the
   banner names, then **Recheck**.
-- **Slow first answer / high RAM** — the first request after startup pays model-load latency; see
-  [`docs/benchmarks.md`](./docs/benchmarks.md) for tokens/sec and peak RAM per model on this
-  hardware, and switch `config.LLM_MODEL` to the smaller `llama3.2:3b` if `qwen2.5:7b` is too slow.
+- **Slow first answer / high RAM** — the first request after startup pays model-load latency;
+  subsequent requests are quicker because `config.LLM_KEEP_ALIVE` keeps the model warm in RAM. See
+  [`docs/benchmarks.md`](./docs/benchmarks.md) for tokens/sec and peak RAM per model on this hardware.
+  The default `qwen2.5:3b` is already a small model; `llama3.2:3b` is a slightly faster fallback, and
+  `qwen2.5:7b` trades speed/RAM for quality — swap via `config.LLM_MODEL`. On an AMD iGPU, see
+  *Optional: GPU acceleration on a Radeon iGPU* above.
 - **Answers seem to ignore retrieved context / get truncated** — check `config.CONTEXT_WINDOW`
   (currently 8192). Ollama's own default `num_ctx` is often smaller than a model's advertised max and
   will silently truncate retrieved chunks + chat history if the explicit `context_window` on the
@@ -99,6 +112,33 @@ cd frontend && npx tsc --noEmit                          # frontend type-check
 - **Upload rejected** — files over `config.MAX_UPLOAD_SIZE_BYTES` (50 MB) get a 413, and only
   `.pdf`/`.png`/`.jpg`/`.jpeg` are accepted (400 otherwise); both show up as a readable inline message,
   not a stack trace.
+
+## Optional: GPU acceleration on a Radeon iGPU
+
+By default everything runs on **CPU** (the project is tuned for it). If your machine has a recent
+AMD integrated GPU (e.g. a Ryzen 7 7000-series APU with **Radeon 780M**), you *may* be able to offload
+LLM inference to the iGPU for a real speedup. This is **experimental and driver/OS-dependent** — it may
+not work on every iGPU, and if it doesn't, nothing else changes: the app keeps running CPU-only. No
+`config.py`, model, or app-code change is involved; it's purely an Ollama runtime/env setting, and the
+`keep_alive` warm-model tuning helps regardless.
+
+```bash
+# 1. See where Ollama is currently running the model — CPU-only shows "100% CPU":
+ollama ps
+
+# 2a. Vulkan path — use a recent Ollama build with Vulkan support and let it
+#     pick up the iGPU. After starting the server + one query, re-check:
+ollama ps        # a GPU percentage here means offload is working
+
+# 2b. ROCm path — override the gfx target to one ROCm recognises for your iGPU.
+#     Radeon 780M is gfx1103; the closest supported target is 11.0.0. The exact
+#     value depends on your specific chip — look yours up before setting it.
+HSA_OVERRIDE_GFX_VERSION=11.0.0 ollama serve
+```
+
+If `ollama ps` still shows `100% CPU` after trying the above, the iGPU isn't being used on your
+setup — that's fine, keep using CPU mode. See Ollama's GPU docs for the current state of Vulkan/ROCm
+support, which changes release to release.
 
 ## Offline note
 

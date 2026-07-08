@@ -26,6 +26,9 @@ scope here.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+
 from llama_index.core import VectorStoreIndex
 from llama_index.core.chat_engine.types import BaseChatEngine
 from llama_index.core.llms import ChatMessage, MessageRole
@@ -41,9 +44,11 @@ from app.qa.prompts import GROUNDED_CHAT_CONTEXT_PROMPT, REFUSAL_MESSAGE
 __all__ = [
     "AnswerResult",
     "Citation",
+    "StreamHandle",
     "default_memory",
     "build_chat_engine",
     "ask",
+    "start_stream",
 ]
 
 
@@ -113,5 +118,49 @@ def ask(chat_engine: BaseChatEngine, question: str) -> AnswerResult:
 
     return AnswerResult(
         answer=str(response),
+        citations=dedup_citations(response.source_nodes),
+    )
+
+
+@dataclass(frozen=True)
+class StreamHandle:
+    """The start of a streaming chat turn, in one of two mutually exclusive states.
+
+    `refused=True`: the similarity cutoff dropped every node. The engine's
+    (poisoned "Empty Response") memory has already been repaired, `tokens` is
+    empty, and the caller should emit `REFUSAL_MESSAGE` -- the streaming mirror
+    of `ask()`'s refusal contract.
+
+    `refused=False`: `tokens` yields the live answer deltas (drive it to
+    completion so the engine's background history writer finishes) and
+    `citations` are the deduped source citations, available up front.
+    """
+
+    refused: bool
+    tokens: Iterator[str]
+    citations: list[Citation]
+
+
+def start_stream(chat_engine: BaseChatEngine, question: str) -> StreamHandle:
+    """Begin a streaming turn. Blocking (runs retrieval); the caller drives `tokens`.
+
+    `stream_chat` populates `source_nodes` synchronously from retrieval before
+    returning and starts a background thread that writes the answer to memory as
+    the token stream is consumed. `response_gen` is a fresh generator on each
+    access, so it's read exactly once here and handed to the caller.
+    """
+    response = chat_engine.stream_chat(question)
+
+    if not response.source_nodes:
+        # Drain the (empty) stream so the background history writer completes,
+        # then repair the "Empty Response" it stored -- same fix as ask().
+        for _ in response.response_gen:
+            pass
+        _repair_refused_turn(chat_engine)
+        return StreamHandle(refused=True, tokens=iter(()), citations=[])
+
+    return StreamHandle(
+        refused=False,
+        tokens=response.response_gen,
         citations=dedup_citations(response.source_nodes),
     )

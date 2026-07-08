@@ -6,6 +6,7 @@ app/api/routers/* fill in.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -330,6 +331,55 @@ async def test_chat_ask_refuses_out_of_doc_question_with_200(client, app_state, 
     body = response.json()
     assert body["answer"] == "I can't find this in your documents."
     assert body["citations"] == []
+
+
+async def _collect_stream(client, question):
+    """Act helper: POST /api/chat/stream and return the parsed NDJSON events."""
+    async with client.stream("POST", "/api/chat/stream", json={"question": question}) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/x-ndjson")
+        return [json.loads(line) async for line in response.aiter_lines() if line.strip()]
+
+
+@pytest.mark.integration
+async def test_chat_stream_returns_tokens_then_done_for_indoc_question(
+    client, app_state, require_ollama
+):
+    """Streaming: an in-doc question emits `token` events whose concatenation is a
+    non-empty answer, then a terminal `done` event carrying citations.
+    """
+    # Arrange
+    add_documents(_BIO_DOCS, handle=app_state.handle, embed_model=app_state.embed_model)
+
+    # Act
+    events = await _collect_stream(client, "What is the powerhouse of the cell?")
+
+    # Assert
+    answer = "".join(e["text"] for e in events if e["type"] == "token")
+    assert len(answer) > 0
+    assert events[-1]["type"] == "done"
+    citations = events[-1]["citations"]
+    assert len(citations) >= 1
+    assert citations[0]["source"] == "bio.pdf"
+
+
+@pytest.mark.integration
+async def test_chat_stream_refuses_out_of_doc_question(client, app_state, require_ollama):
+    """Streaming refusal: an out-of-doc question streams exactly the fixed refusal
+    text and a `done` event with no citations (mirrors the /ask refusal contract).
+    """
+    # Arrange
+    add_documents(_BIO_DOCS, handle=app_state.handle, embed_model=app_state.embed_model)
+
+    # Act
+    events = await _collect_stream(
+        client, "What was the exchange rate of the Ottoman lira in 1875?"
+    )
+
+    # Assert
+    answer = "".join(e["text"] for e in events if e["type"] == "token")
+    assert answer == "I can't find this in your documents."
+    assert events[-1] == {"type": "done", "citations": []}
 
 
 @pytest.mark.integration
