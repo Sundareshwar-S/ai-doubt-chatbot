@@ -18,6 +18,8 @@ _GROUNDED_QA_TMPL = (
     "Only if the content above is unrelated to the question and gives you nothing to work with, "
     f'respond with exactly: "{REFUSAL_MESSAGE}"\n'
     "When you state a specific fact, cite its source file and page number, e.g. (source.pdf, p.3). "
+    "Write any math using LaTeX, delimited with $...$ or \\(...\\) for inline expressions and "
+    "$$...$$ or \\[...\\] for display equations (not square brackets or parentheses on their own). "
     "Keep the answer concise.\n"
     "Question: {query_str}\n"
     "Answer: "
@@ -43,5 +45,7 @@ GROUNDED_CHAT_CONTEXT_PROMPT = (
     "Only if the content above is unrelated to the question and gives you nothing to work with, "
     f'respond with exactly: "{REFUSAL_MESSAGE}"\n'
     "When you state a specific fact, cite its source file and page number, e.g. (source.pdf, p.3). "
+    "Write any math using LaTeX, delimited with $...$ or \\(...\\) for inline expressions and "
+    "$$...$$ or \\[...\\] for display equations (not square brackets or parentheses on their own). "
     "Keep the answer concise."
 )

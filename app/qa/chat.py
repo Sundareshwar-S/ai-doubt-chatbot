@@ -17,6 +17,12 @@ cutoff drops every node, LlamaIndex's synthesizer returns the literal string
 our fixed REFUSAL_MESSAGE and (b) rewrites that poisoned message in memory, so
 the next turn's condense step never sees LlamaIndex's internal artifact.
 
+`start_stream()` doesn't go through `chat_engine.stream_chat()` at all -- see its
+docstring for why (LlamaIndex's `Refine` synthesizer buffers the whole answer
+before yielding once, defeating real token streaming) -- so it never produces
+that poisoned artifact in the first place; refused turns write REFUSAL_MESSAGE
+to memory directly.
+
 The chat engine is stateful (it owns the memory buffer); a caller holds one
 instance and its memory accumulates across turns. Phase 5 will build an instance
 in the FastAPI lifespan; because a single `ChatMemoryBuffer` is one linear
@@ -30,10 +36,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from llama_index.core import VectorStoreIndex
+from llama_index.core.base.llms.generic_utils import messages_to_history_str
 from llama_index.core.chat_engine.types import BaseChatEngine
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.postprocessor import SimilarityPostprocessor
+from llama_index.core.schema import MetadataMode, QueryBundle
 from llama_index.llms.ollama import Ollama
 
 import config
@@ -126,13 +134,15 @@ def ask(chat_engine: BaseChatEngine, question: str) -> AnswerResult:
 class StreamHandle:
     """The start of a streaming chat turn, in one of two mutually exclusive states.
 
-    `refused=True`: the similarity cutoff dropped every node. The engine's
-    (poisoned "Empty Response") memory has already been repaired, `tokens` is
-    empty, and the caller should emit `REFUSAL_MESSAGE` -- the streaming mirror
-    of `ask()`'s refusal contract.
+    `refused=True`: the similarity cutoff dropped every node. `REFUSAL_MESSAGE`
+    has already been written to memory as the assistant turn (no LlamaIndex
+    "Empty Response" artifact to repair -- unlike `ask()`, `start_stream` never
+    calls the LLM for a refused turn, so nothing poisoned is ever written),
+    `tokens` is empty, and the caller should emit `REFUSAL_MESSAGE` -- the
+    streaming mirror of `ask()`'s refusal contract.
 
-    `refused=False`: `tokens` yields the live answer deltas (drive it to
-    completion so the engine's background history writer finishes) and
+    `refused=False`: `tokens` yields the live answer deltas one at a time
+    (drive it to completion so the full answer gets written to memory) and
     `citations` are the deduped source citations, available up front.
     """
 
@@ -142,25 +152,74 @@ class StreamHandle:
 
 
 def start_stream(chat_engine: BaseChatEngine, question: str) -> StreamHandle:
-    """Begin a streaming turn. Blocking (runs retrieval); the caller drives `tokens`.
+    """Begin a streaming turn. Blocking (runs condense + retrieval); the caller
+    drives `tokens` to trigger generation and the memory write.
 
-    `stream_chat` populates `source_nodes` synchronously from retrieval before
-    returning and starts a background thread that writes the answer to memory as
-    the token stream is consumed. `response_gen` is a fresh generator on each
-    access, so it's read exactly once here and handed to the caller.
+    Deliberately bypasses `chat_engine.stream_chat()`. LlamaIndex's
+    `condense_plus_context` synthesizes the answer via `Refine`/`CompactAndRefine`,
+    whose `DefaultRefineProgram.stream_call()` fully drains the LLM's token stream
+    into one string before yielding it *once* ("we want to mimic [structured
+    output] behavior", per that method's own comment) -- so `response_gen` there
+    delivers the whole answer as a single chunk, not real per-token deltas
+    (confirmed empirically: `start_stream` blocked for the full generation time,
+    then yielded exactly one item). Ollama itself streams token-by-token fine, so
+    this function replicates condense_plus_context's condense-question -> retrieve
+    -> grounded-prompt steps by hand, then drives `llm.stream_chat()` directly for
+    genuine incremental delivery. Reaches into the engine's private attributes
+    (`_retriever`, `_llm`, `_memory`, ...) since `build_chat_engine()` only exposes
+    the assembled `BaseChatEngine`, not its components separately.
     """
-    response = chat_engine.stream_chat(question)
+    retriever = chat_engine._retriever
+    llm = chat_engine._llm
+    memory = chat_engine._memory
+    node_postprocessors = chat_engine._node_postprocessors
+    condense_prompt = chat_engine._condense_prompt_template
+    skip_condense = chat_engine._skip_condense
 
-    if not response.source_nodes:
-        # Drain the (empty) stream so the background history writer completes,
-        # then repair the "Empty Response" it stored -- same fix as ask().
-        for _ in response.response_gen:
-            pass
-        _repair_refused_turn(chat_engine)
+    chat_history = memory.get(input=question)
+
+    condensed_question = question
+    if not skip_condense and chat_history:
+        llm_input = condense_prompt.format(
+            chat_history=messages_to_history_str(chat_history), question=question
+        )
+        condensed_question = str(llm.complete(llm_input))
+
+    nodes = retriever.retrieve(condensed_question)
+    for postprocessor in node_postprocessors:
+        nodes = postprocessor.postprocess_nodes(
+            nodes, query_bundle=QueryBundle(condensed_question)
+        )
+
+    memory.put(ChatMessage(role=MessageRole.USER, content=question))
+
+    if not nodes:
+        memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=REFUSAL_MESSAGE))
         return StreamHandle(refused=True, tokens=iter(()), citations=[])
+
+    context_str = "\n\n".join(
+        n.node.get_content(metadata_mode=MetadataMode.LLM) for n in nodes
+    )
+    messages = [
+        ChatMessage(
+            role=MessageRole.SYSTEM,
+            content=GROUNDED_CHAT_CONTEXT_PROMPT.format(context_str=context_str),
+        ),
+        *chat_history,
+        ChatMessage(role=MessageRole.USER, content=question),
+    ]
+
+    def token_gen() -> Iterator[str]:
+        full_response = ""
+        for chunk in llm.stream_chat(messages):
+            delta = chunk.delta or ""
+            if delta:
+                full_response += delta
+                yield delta
+        memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=full_response.strip()))
 
     return StreamHandle(
         refused=False,
-        tokens=response.response_gen,
-        citations=dedup_citations(response.source_nodes),
+        tokens=token_gen(),
+        citations=dedup_citations(nodes),
     )
