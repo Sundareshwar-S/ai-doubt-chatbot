@@ -1,5 +1,5 @@
 .app {
-  max-width: 640px;
+  max-width: 1100px;
   width: 100%;
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
@@ -160,7 +160,7 @@ input[type='file']::file-selector-button:hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-height: 360px;
+  max-height: 520px;
   overflow-y: auto;
   margin: 0.75rem 0;
   padding: 0.25rem;
@@ -170,7 +170,7 @@ input[type='file']::file-selector-button:hover {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  max-width: 85%;
+  max-width: min(85%, 720px);
 }
 
 .chat-message-row--assistant {
@@ -210,6 +210,70 @@ input[type='file']::file-selector-button:hover {
 
 .chat-message--user {
   border-left: 3px solid var(--accent);
+}
+
+.chat-message-content > *:first-child {
+  margin-top: 0;
+}
+
+.chat-message-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.chat-message-content p {
+  margin: 0 0 0.6rem;
+}
+
+.chat-message-content h1,
+.chat-message-content h2,
+.chat-message-content h3,
+.chat-message-content h4,
+.chat-message-content h5,
+.chat-message-content h6 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 0.9rem 0 0.4rem;
+}
+
+.chat-message-content ul,
+.chat-message-content ol {
+  margin: 0 0 0.6rem;
+  padding-left: 1.3rem;
+}
+
+.chat-message-content li {
+  margin-bottom: 0.25rem;
+}
+
+.chat-message-content pre {
+  background: var(--bg-page);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.8rem;
+  overflow-x: auto;
+  margin: 0 0 0.6rem;
+}
+
+.chat-message-content pre code {
+  padding: 0;
+  background: none;
+}
+
+.chat-message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 0.6rem;
+  font-size: 0.9em;
+}
+
+.chat-message-content th,
+.chat-message-content td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+.chat-message-content th {
+  background: var(--bg-page);
 }
 
 .chat-message--loading {
