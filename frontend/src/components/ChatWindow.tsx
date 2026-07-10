@@ -3,6 +3,8 @@ import type { FormEvent } from 'react';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { TypingIndicator } from './TypingIndicator';
+import { ThemeToggle } from './ThemeToggle';
+import { SendIcon } from './icons';
 
 export function ChatWindow() {
   const { messages, isAsking, error, askQuestion, resetChat } = useChat();
@@ -24,11 +26,19 @@ export function ChatWindow() {
 
   return (
     <section className="chat-window">
-      <div className="chat-window-header">
+      <div className="chat-header">
         <h2>Chat</h2>
-        <button type="button" onClick={() => resetChat()} disabled={isAsking}>
-          Clear chat
-        </button>
+        <div className="chat-header-actions">
+          <ThemeToggle />
+          <button
+            type="button"
+            className="clear-chat-button"
+            onClick={() => resetChat()}
+            disabled={isAsking}
+          >
+            Clear chat
+          </button>
+        </div>
       </div>
       <div className="chat-transcript" aria-live="polite" aria-relevant="additions">
         {visibleMessages.map((message, index) => (
@@ -41,7 +51,7 @@ export function ChatWindow() {
           {error}
         </p>
       )}
-      <form onSubmit={handleSubmit}>
+      <form className="chat-input-bar" onSubmit={handleSubmit}>
         <label htmlFor="chat-question" className="visually-hidden">
           Question
         </label>
@@ -53,8 +63,17 @@ export function ChatWindow() {
           placeholder="Ask a question about your documents…"
           disabled={isAsking}
         />
-        <button type="submit" disabled={isAsking || !question.trim()}>
-          {isAsking ? 'Asking…' : 'Ask'}
+        <button
+          type="submit"
+          className="send-button"
+          aria-label="Send question"
+          disabled={isAsking || !question.trim()}
+        >
+          {isAsking ? (
+            <span className="spinner" role="status" aria-label="Sending" />
+          ) : (
+            <SendIcon />
+          )}
         </button>
       </form>
     </section>

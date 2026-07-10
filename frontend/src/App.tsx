@@ -11,12 +11,11 @@ function App() {
   const documentsState = useDocuments();
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>AI Doubt Solver</h1>
-      </header>
-      <StatusBanner />
-      <main className="app-main">
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h1>AI Doubt Solver</h1>
+        </div>
         {documentsState.error && (
           <p className="error-text" role="alert">
             {documentsState.error}
@@ -31,6 +30,9 @@ function App() {
           removeDocument={documentsState.removeDocument}
           removingSources={documentsState.removingSources}
         />
+      </aside>
+      <main className="main-panel">
+        <StatusBanner />
         <ChatWindow />
       </main>
     </div>

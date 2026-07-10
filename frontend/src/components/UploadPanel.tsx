@@ -33,25 +33,23 @@ export function UploadPanel({ uploadDocument, isUploading }: UploadPanelProps) {
 
   return (
     <section className="upload-panel">
-      <div className="upload-dropzone">
-        <span className="icon-badge">
-          <CloudUploadIcon />
-        </span>
-        <h2>Upload a document</h2>
-        <label htmlFor="doc-upload" className="visually-hidden">
-          Choose a PDF or image file to upload
-        </label>
-        <input
-          id="doc-upload"
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg"
-          onChange={handleFileChange}
-          disabled={isUploading}
-        />
-        {isUploading && <p className="status-text">Uploading…</p>}
-        {lastMessage && <p className="status-text">{lastMessage}</p>}
-      </div>
+      <span className="icon-badge">
+        <CloudUploadIcon />
+      </span>
+      <h2>Upload a document</h2>
+      <label htmlFor="doc-upload" className="visually-hidden">
+        Choose a PDF or image file to upload
+      </label>
+      <input
+        id="doc-upload"
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg"
+        onChange={handleFileChange}
+        disabled={isUploading}
+      />
+      {isUploading && <p className="status-text">Uploading…</p>}
+      {lastMessage && <p className="status-text">{lastMessage}</p>}
     </section>
   );
 }

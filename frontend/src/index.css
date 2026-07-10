@@ -1,6 +1,17 @@
+/*
+ * Theme tokens. Light is the default on :root; the dark palette lives in a
+ * shared @mixin-like block applied via two selectors:
+ *   - :root[data-theme="dark"]                       -> explicit user/localStorage choice
+ *   - @media (prefers-color-scheme: dark) :root:not([data-theme="light"])
+ *                                                     -> OS preference before a choice is made
+ * The index.html pre-paint script normally stamps data-theme up front, so the
+ * media query is a belt-and-braces fallback (JS disabled / storage blocked).
+ */
 :root {
   --bg-page: #f2f2fb;
+  --bg-sidebar: #ffffff;
   --bg-card: #ffffff;
+  --bg-elevated: #f2f2fb;
   --text: #1f2230;
   --text-muted: #6b7280;
   --border: #e5e4f0;
@@ -12,6 +23,7 @@
   --danger-text: #b3261e;
   --radius-lg: 20px;
   --radius-md: 12px;
+  --sidebar-width: 320px;
   --shadow-card:
     rgba(15, 23, 42, 0.06) 0 1px 3px, rgba(15, 23, 42, 0.04) 0 8px 24px;
 
@@ -29,16 +41,36 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --bg-page: #0a0e1a;
+  --bg-sidebar: #0a0e1a;
+  --bg-card: #141a2e;
+  --bg-elevated: #1a2138;
+  --text: #e6e9f2;
+  --text-muted: #8b93a7;
+  --border: #1e2537;
+  --accent: #818cf8;
+  --accent-dark: #a5b4fc;
+  --accent-bg: #1e2542;
+  --accent-border: rgba(129, 140, 248, 0.4);
+  --danger-bg: #3a1f1f;
+  --danger-text: #ff9c9c;
+  --shadow-card:
+    rgba(0, 0, 0, 0.4) 0 1px 3px, rgba(0, 0, 0, 0.3) 0 8px 24px;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg-page: #14151c;
-    --bg-card: #1d1e27;
-    --text: #e5e7eb;
-    --text-muted: #9ca3af;
-    --border: #2e303a;
+  :root:not([data-theme='light']) {
+    --bg-page: #0a0e1a;
+    --bg-sidebar: #0a0e1a;
+    --bg-card: #141a2e;
+    --bg-elevated: #1a2138;
+    --text: #e6e9f2;
+    --text-muted: #8b93a7;
+    --border: #1e2537;
     --accent: #818cf8;
     --accent-dark: #a5b4fc;
-    --accent-bg: #262a45;
+    --accent-bg: #1e2542;
     --accent-border: rgba(129, 140, 248, 0.4);
     --danger-bg: #3a1f1f;
     --danger-text: #ff9c9c;

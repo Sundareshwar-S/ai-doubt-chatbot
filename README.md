@@ -84,6 +84,26 @@ instead of after the whole (CPU-bound) generation finishes. The non-streaming `P
 still exists and returns the same answer in one shot. Refusals stream too: an out-of-document question
 streams exactly `"I can't find this in your documents."` with no citations.
 
+Genuine per-token delivery requires bypassing LlamaIndex's `condense_plus_context` chat engine for the
+streaming path: its `Refine` synthesizer buffers the whole answer into one string before yielding it
+once, so `app/qa/chat.py`'s `start_stream()` drives the condense → retrieve → LLM steps by hand and
+streams straight from `llm.stream_chat()`.
+
+### Layout and theme
+
+The UI is a two-panel app shell: a left sidebar (upload + document library) beside the chat panel
+(header, transcript, and a bottom input bar with a circular send button). A sun/moon button in the
+chat header toggles between light and dark themes; the choice is saved in `localStorage` and applied
+before first paint (no flash on reload). Without a stored choice it follows your OS preference. On
+narrow/mobile screens the sidebar stacks above the chat.
+
+### Markdown and LaTeX rendering
+
+Chat messages render as formatted markdown (headings, bold, tables, etc. via `react-markdown` +
+`remark-gfm`) instead of raw text, and math is rendered with KaTeX (`remark-math`/`rehype-katex`) — the
+grounding prompt asks the model to write math as LaTeX, and the frontend normalizes the model's
+preferred `\(...\)`/`\[...\]` delimiters to the `$...$`/`$$...$$` form KaTeX's remark plugin expects.
+
 ## Tests
 
 ```bash

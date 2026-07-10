@@ -66,7 +66,8 @@ Most tests are marked `@pytest.mark.integration` and require a **real local Olla
 │  ├─ qa/
 │  │  ├─ prompts.py         # grounding QA prompt template + REFUSAL_MESSAGE + chat context prompt
 │  │  ├─ engine.py          # query engine, citations, grounded-refusal short-circuit
-│  │  └─ chat.py            # multi-turn condense_plus_context chat engine + token-capped memory
+│  │  └─ chat.py            # multi-turn condense_plus_context chat engine + token-capped memory;
+│  │                        # start_stream() hand-rolls condense/retrieve/stream_chat for real token streaming
 │  └─ api/                  # FastAPI backend (Phase 5)
 │     ├─ main.py            # create_app(); lifespan builds AppState once; CORS; static mount
 │     ├─ state.py           # AppState: handle, embed_model, index, chat_engine, chat_lock, library_lock
@@ -89,9 +90,9 @@ Most tests are marked `@pytest.mark.integration` and require a **real local Olla
 │  └─ src/
 │     ├─ App.tsx, main.tsx
 │     ├─ api/               # client.ts (fetch wrapper + ApiError), types.ts (mirrors Pydantic schemas)
-│     ├─ hooks/             # useDocuments.ts, useChat.ts, useHealth.ts
+│     ├─ hooks/             # useDocuments.ts, useChat.ts, useHealth.ts, useTheme.ts
 │     └─ components/        # StatusBanner, UploadPanel, LibraryList, ChatWindow, ChatMessage,
-│                            # TypingIndicator, icons.tsx (inline SVG icon set)
+│                            # TypingIndicator, ThemeToggle, icons.tsx (inline SVG icon set)
 └─ data/                    # (gitignored) chroma/ vector DB, manifest.json, uploaded files
 ```
 
@@ -155,11 +156,20 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   the query engine:** the chat engine always writes to memory, so on empty retrieval LlamaIndex
   stores the literal "Empty Response" — `ask()` both returns `REFUSAL_MESSAGE` *and* repairs that
   poisoned assistant message in memory so it can't corrupt the next turn's condense input. The engine
-  is stateful (one instance per conversation). `start_stream()` is the streaming counterpart: it calls
-  `chat_engine.stream_chat()` (which sets `source_nodes` synchronously from retrieval and spawns a
-  background history-writer thread), and returns a `StreamHandle` — either `refused=True` (empty
-  retrieval: it drains the stream, repairs memory, and the caller emits `REFUSAL_MESSAGE`) or the live
-  token generator + up-front deduped citations. Same refusal contract as `ask()`, just streamed.
+  is stateful (one instance per conversation). `start_stream()` is the streaming counterpart, and it
+  **deliberately bypasses `chat_engine.stream_chat()`**: `condense_plus_context`'s `Refine` synthesizer
+  fully drains the LLM's token stream into one string before yielding it once (confirmed empirically —
+  `start_stream` blocked for the whole generation, then yielded a single chunk), defeating real
+  token-by-token delivery even though Ollama itself streams fine underneath. Instead `start_stream()`
+  replicates the engine's condense-question → retrieve → grounded-prompt steps by hand (reaching into
+  the engine's private `_retriever`/`_llm`/`_memory`/etc., since `build_chat_engine()` only exposes the
+  assembled `BaseChatEngine`) and drives `llm.stream_chat()` directly. It returns a `StreamHandle` —
+  either `refused=True` (empty retrieval: `REFUSAL_MESSAGE` is written to memory directly, no LlamaIndex
+  "Empty Response" artifact ever occurs since the LLM is never called) or the live token generator +
+  up-front deduped citations, with a background-free memory write happening inline as `tokens` is
+  drained to completion. Same refusal contract as `ask()`, just streamed. The grounding prompts
+  (`app/qa/prompts.py`) also instruct the LLM to write math as LaTeX (`$...$`/`$$...$$` or
+  `\(...\)`/`\[...\]`) since answers may include formulas from source PDFs.
 - **`app/api/`** — FastAPI backend wrapping the pipeline above. `main.py`'s `lifespan` builds a single
   `AppState` (handle, embed_model, index, chat_engine) exactly once at startup — the FastAPI
   equivalent of `@st.cache_resource` — and mounts `frontend/dist` at `/` when it exists (after all
@@ -191,7 +201,23 @@ ingest/extract.py  →  index/pipeline.py  →  index/store.py (Chroma)  →  qa
   assistant placeholder message pushed at the start of `askQuestion` is exactly that signal — `ChatWindow`
   derives `showTyping = isAsking && lastMessage.role === 'assistant' && lastMessage.content === ''` and
   swaps in `TypingIndicator` (bot avatar + a CSS spinner) for that placeholder until the first token
-  arrives and overwrites it.
+  arrives and overwrites it. `ChatMessage.tsx` renders assistant/user content through `react-markdown`
+  (`remark-gfm` for tables/strikethrough/etc.) instead of raw text, plus `remark-math`/`rehype-katex`
+  for LaTeX math — the LLM reliably prefers LaTeX's own `\(...\)`/`\[...\]` delimiters over the
+  `$...$`/`$$...$$` `remark-math` requires (a strong prior from training data that prompting doesn't
+  override), so `normalizeLatexDelimiters()` translates before rendering rather than fighting the
+  model's natural style; `katex/dist/katex.min.css` is imported once in `main.tsx`. **Layout is a
+  two-panel app shell** (`App.tsx`): a fixed-width left `aside.sidebar` (app title + `UploadPanel` +
+  `LibraryList`) beside a full-height `main.main-panel` that holds the `StatusBanner` and `ChatWindow`
+  (a `.chat-header` with the "Chat" title, `ThemeToggle`, and "Clear chat"; a flex-grow
+  `.chat-transcript` that scrolls internally; and a `.chat-input-bar` pinned at the bottom whose submit
+  is a circular `SendIcon` button). Below `~768px` the sidebar stacks on top of the chat
+  (`App.css` `@media` block). **Theming is a manual light/dark toggle, not OS-only:** `index.css`
+  defines light tokens on `:root`, dark tokens on `:root[data-theme="dark"]`, with a
+  `@media (prefers-color-scheme: dark) :root:not([data-theme="light"])` fallback for first paint; the
+  dark palette is a deep navy tuned to the design mockup. `useTheme.ts` persists the choice in
+  `localStorage` and stamps `document.documentElement.dataset.theme`, and an inline script in
+  `index.html` applies the stored/OS theme before React mounts to avoid a light→dark flash.
 
 **Config is centralized and flat** — `config.py` is the single source for model names, Ollama
 connection settings, LLM call tuning (`LLM_TEMPERATURE`, `LLM_KEEP_ALIVE`, `CONTEXT_WINDOW`,
